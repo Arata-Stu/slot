@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>スロットマシンシミュレータ</title>
+    <script src="slotMachine.js"></script> <!-- JSファイルを読み込む -->
+</head>
+<body>
+    <h1>スロットマシンシミュレータ</h1>
+    <div>
+        <label for="armSelect">アームを選択:</label>
+        <select id="armSelect">
+            <option value="0">アーム 1</option>
+            <option value="1">アーム 2</option>
+            <option value="2">アーム 3</option>
+            <!-- 以下同様に10まで -->
+            <option value="9">アーム 10</option>
+        </select>
+        <button onclick="pullArm()">アームを引く</button>
+    </div>
+    <div id="result"></div>
+
+    <script>
+        // SlotMachineクラスを使ったスクリプト
+        const machine = new Bandit(10);
+
+        function pullArm() {
+            const armIndex = document.getElementById('armSelect').value;
+            const reward = machine.pullArm(parseInt(armIndex));
+            document.getElementById('result').innerText = `報酬: ${reward}`;
+        }
+    </script>
+</body>
+</html>
