@@ -3,32 +3,170 @@
 <head>
     <meta charset="UTF-8">
     <title>スロットマシンシミュレータ</title>
-    <script src="slotMachine.js"></script> <!-- JSファイルを読み込む -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script> <!-- Chart.jsを読み込む -->
 </head>
 <body>
     <h1>スロットマシンシミュレータ</h1>
     <div>
-        <label for="armSelect">アームを選択:</label>
-        <select id="armSelect">
-            <option value="0">アーム 1</option>
-            <option value="1">アーム 2</option>
-            <option value="2">アーム 3</option>
-            <!-- 以下同様に10まで -->
-            <option value="9">アーム 10</option>
-        </select>
-        <button onclick="pullArm()">アームを引く</button>
+        <label for="numBandits">バンディットの台数:</label>
+        <input type="number" id="numBandits" value="1" min="1">
     </div>
-    <div id="result"></div>
+    <div>
+        <label for="epsilonValues">ε値 (カンマ区切り):</label>
+        <input type="text" id="epsilonValues" value="0.1, 0.2, 0.3">
+    </div>
+    <div>
+        <label for="numPlays">プレイ回数:</label>
+        <input type="number" id="numPlays" value="100" min="1">
+    </div>
+    <button onclick="startSimulation()">シミュレーション開始</button>
+    <div id="chartContainer" style="width:75%;">
+        <canvas id="resultsChart"></canvas>
+    </div>
 
     <script>
-        // SlotMachineクラスを使ったスクリプト
-        const machine = new Bandit(10);
+        class Arm {
+    constructor(mean) {
+        this.mean = mean; // このアームの平均報酬値
+    }
 
-        function pullArm() {
-            const armIndex = document.getElementById('armSelect').value;
-            const reward = machine.pullArm(parseInt(armIndex));
-            document.getElementById('result').innerText = `報酬: ${reward}`;
+    // 正規分布に従う乱数を生成する関数（標準偏差は1とする）
+    getRandomReward() {
+        return this.mean + Bandit.randomNormal();
+    }
+}
+
+class Bandit {
+    constructor(numArms) {
+        this.arms = [];
+        // 各アームにランダムな平均報酬値（qstar）を設定
+        for (let i = 0; i < numArms; i++) {
+            this.arms.push(new Arm(Bandit.randomNormal()));
         }
+    }
+
+    pullArm(index) {
+        return this.arms[index].getRandomReward();
+    }
+
+    // Box-Muller変換を用いた標準正規分布乱数生成関数
+    static randomNormal() {
+        let u = 0, v = 0;
+        while (u === 0) u = Math.random(); // 0を除外
+        while (v === 0) v = Math.random();
+        return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+    }
+}
+
+class EpsilonGreedyPlayer {
+    constructor(numArms, epsilon = 0.1) {
+        this.bandit = new Bandit(numArms);
+        this.numArms = numArms;
+        this.epsilon = epsilon;
+        this.totalRewards = new Array(numArms).fill(0);
+        this.counts = new Array(numArms).fill(0);
+        this.qValues = new Array(numArms).fill(0); // 各アームのq値
+    }
+
+    // 1回プレイする
+    play() {
+        let chosenArm;
+        if (Math.random() < this.epsilon) {
+            // 確率εでランダムにアームを選択
+            chosenArm = Math.floor(Math.random() * this.numArms);
+        } else {
+            // それ以外の場合、現時点で最高のq値を持つアームを選択
+            chosenArm = this.qValues.indexOf(Math.max(...this.qValues));
+        }
+
+        // 選択したアームを引いて報酬を受け取る
+        let reward = this.bandit.pullArm(chosenArm);
+        this.counts[chosenArm]++;
+        this.totalRewards[chosenArm] += reward;
+
+        // q値を更新
+        this.qValues[chosenArm] = this.totalRewards[chosenArm] / this.counts[chosenArm];
+
+        return { chosenArm, reward };
+    }
+
+    // 指定された回数プレイする
+    playFor(play_n) {
+        let results = [];
+        for (let i = 0; i < play_n; i++) {
+            results.push(this.play());
+        }
+        return results;
+    }
+}
+let chartInstance = null
+// JavaScriptコード
+function startSimulation() {
+    const epsilonValues = document.getElementById('epsilonValues').value.split(',').map(v => parseFloat(v.trim()));
+    const numPlays = parseInt(document.getElementById('numPlays').value);
+    const numBandits = parseInt(document.getElementById('numBandits').value);
+
+    let datasets = [];
+
+    epsilonValues.forEach(epsilon => {
+        let allRewards = new Array(numPlays).fill(0);
+
+        for (let i = 0; i < numBandits; i++) {
+            let player = new EpsilonGreedyPlayer(10, epsilon);
+
+            for (let j = 0; j < numPlays; j++) {
+                let result = player.play();
+                allRewards[j] += result.reward;
+            }
+        }
+
+        let averagedRewards = allRewards.map(reward => reward / numBandits);
+        datasets.push({
+            label: `ε = ${epsilon}`,
+            data: averagedRewards,
+            fill: false,
+            borderColor: getRandomColor(),
+            tension: 0.1
+        });
+    });
+
+    plotResults(datasets, numPlays);
+}
+
+function getRandomColor() {
+    var letters = '0123456789ABCDEF';
+    var color = '#';
+    for (var i = 0; i < 6; i++) {
+        color += letters[Math.floor(Math.random() * 16)];
+    }
+    return color;
+}
+
+function plotResults(datasets, numPlays) {
+    const ctx = document.getElementById('resultsChart').getContext('2d');
+    const labels = Array.from({ length: numPlays }, (_, i) => i + 1);
+
+    // 既存のグラフがあれば破棄する
+    if (chartInstance) {
+        chartInstance.destroy();
+    }
+
+    // 新しいグラフを作成
+    chartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: datasets
+        },
+        options: {
+            scales: {
+                y: {
+                    beginAtZero: true
+                }
+            }
+        }
+    });
+}
     </script>
 </body>
 </html>
